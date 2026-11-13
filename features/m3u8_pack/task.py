@@ -365,16 +365,19 @@ class M3U8TaskStep(TaskStep):
             return True
 
         prefix = f"{self._saveName.lower()}."
-        found = max(
-            (c for c in self.task.partPath.glob("*")
-             if c.is_file() and c.suffix.lower() not in IGNORED_OUTPUT_SUFFIXES
-             and c.name.lower().startswith(prefix)),
-            key=lambda c: c.stat().st_mtime,
-            default=None,
-        )
-        if found is None:
-            return False
-        if found.suffix.lower() != target.suffix.lower():
+        candidates = [
+            c for c in self.task.partPath.glob("*")
+            if c.is_file() and c.suffix.lower() not in IGNORED_OUTPUT_SUFFIXES
+            and c.name.lower().startswith(prefix)
+        ]
+        # 同一 save-name 下还会写出字幕（.srt）等附属文件，先按目标后缀挑主输出 #1031
+        matching = [c for c in candidates if c.suffix.lower() == target.suffix.lower()]
+        if matching:
+            found = max(matching, key=lambda c: c.stat().st_mtime)
+        else:
+            if not candidates:
+                return False
+            found = max(candidates, key=lambda c: c.stat().st_mtime)
             raise TaskError("N_m3u8DL-RE 输出了 {actual} 文件，与任务的 {expected} 不符",
                             actual=found.suffix, expected=target.suffix)
         self.task.fileSize = max(self.task.fileSize, found.stat().st_size)

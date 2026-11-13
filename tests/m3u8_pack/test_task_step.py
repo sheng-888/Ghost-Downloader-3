@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 import pytest
 
 from app.format import toBytes
+from app.models.task import TaskError
 from features.m3u8_pack.task import M3U8Task, M3U8TaskStep
 
 
@@ -144,3 +147,34 @@ def test_parse_live_record_progress_without_speed():
     )
     assert step.liveStatus == "Recording"
     assert step.speed == 0
+
+
+def test_find_output_file_ignores_subtitle(tmp_path):
+    """同名的 .srt 比视频新，不能让它抢走主输出的位置 #1031。"""
+    task = M3U8Task(name="video.mp4", url="http://test", fileSize=1, outputFolder=tmp_path)
+    step = M3U8TaskStep(stepIndex=1)
+    task.addStep(step)
+    partFolder = task.partPath
+    partFolder.mkdir(parents=True)
+    video = partFolder / "video.mp4"
+    video.write_bytes(b"video")
+    subtitle = partFolder / "video.srt"
+    subtitle.write_text("subtitle", encoding="utf-8")
+    now = time.time()
+    os.utime(video, (now - 10, now - 10))
+    os.utime(subtitle, (now, now))
+
+    assert step._findOutputFile() is True
+    assert (tmp_path / "video.mp4").read_bytes() == b"video"
+
+
+def test_find_output_file_reports_mismatched_suffix(tmp_path):
+    task = M3U8Task(name="video.mp4", url="http://test", fileSize=1, outputFolder=tmp_path)
+    step = M3U8TaskStep(stepIndex=1)
+    task.addStep(step)
+    partFolder = task.partPath
+    partFolder.mkdir(parents=True)
+    (partFolder / "video.srt").write_text("subtitle", encoding="utf-8")
+
+    with pytest.raises(TaskError):
+        step._findOutputFile()
