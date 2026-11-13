@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QVBoxLayout, QWidget, QApplication
 from qfluentwidgets import (
@@ -59,6 +59,10 @@ class SettingPage(FastScrollArea):
         from app.view.pages.task_page import EmptyStatusWidget
         self.emptyStatusWidget = EmptyStatusWidget(FluentIcon.SEARCH_MIRROR, self.tr("未找到匹配的设置项"), self)
         self.emptyStatusWidget.hide()
+
+        self._pendingGroups = None
+        self._searchText = ""
+        self._arePackGroupsBuilt = False
 
         self._initWidget()
         self._initCards()
@@ -404,9 +408,21 @@ class SettingPage(FastScrollArea):
         self.addSettingGroup(self.aria2RpcGroup)
         self.addSettingGroup(self.personalGroup)
         self.addSettingGroup(self.softwareGroup)
-        for group in self._featureService.settingGroups(self.container):
-            self.addSettingGroup(group)
         self.addSettingGroup(self.aboutGroup)
+
+    def _buildNextPackGroup(self) -> None:
+        if self._pendingGroups is None:
+            return
+        for group in self._pendingGroups:
+            index = self.vBoxLayout.indexOf(self.aboutGroup)
+            self.vBoxLayout.insertWidget(index, group)
+            if self._searchText:
+                self.setSearchText(self._searchText)
+            break
+        else:
+            self._pendingGroups = None
+            return
+        QTimer.singleShot(16, self._buildNextPackGroup)
 
     def _bind(self) -> None:
         cfg.appRestartSig.connect(self._showRestartTooltip)
@@ -609,6 +625,7 @@ class SettingPage(FastScrollArea):
         return self.tr("搜索设置")
 
     def setSearchText(self, text: str) -> None:
+        self._searchText = text
         hasMatch = False
         for i in range(self.vBoxLayout.count()):
             group = self.vBoxLayout.itemAt(i).widget()
@@ -636,6 +653,12 @@ class SettingPage(FastScrollArea):
     def showEvent(self, event) -> None:
         self._restoreOrder()
         super().showEvent(event)
+        if self._arePackGroupsBuilt:
+            return
+        self._arePackGroupsBuilt = True
+        # 功能包设置组占了整页近一半的构建时间，放到页面显示之后按包分批补，切页不再卡住
+        self._pendingGroups = self._featureService.settingGroups(self.container)
+        QTimer.singleShot(16, self._buildNextPackGroup)
 
     def _restoreOrder(self) -> None:
         groups = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from dataclasses import replace
 from threading import Event
 from typing import TYPE_CHECKING
@@ -189,12 +190,11 @@ class FeatureService:
             result.extend(pack.pages())
         return result
 
-    def settingGroups(self, parent: QWidget) -> list[CollapsibleSettingCardGroup]:
-        groups: list[CollapsibleSettingCardGroup] = []
+    def settingGroups(self, parent: QWidget) -> Iterator[CollapsibleSettingCardGroup]:
         for pack in self._packs:
-            if pack.config:
-                groups.extend(pack.config.settingGroups(parent))
-        return groups
+            if pack.config is None:
+                continue
+            yield from pack.config.settingGroups(parent)
 
     def runtimes(self) -> list[BinaryRuntime]:
         result: list[BinaryRuntime] = []
