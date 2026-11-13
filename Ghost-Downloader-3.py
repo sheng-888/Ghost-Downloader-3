@@ -56,14 +56,24 @@ def setupEnvironment() -> None:
         os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
         os.environ["QT_SCALE_FACTOR"] = str(cfg.dpiScale.value)
 
-    if sys.platform == "win32":
-        from PySide6.QtGui import QFont
-        from PySide6.QtWidgets import QApplication
-        font = QFont()
-        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-        QApplication.setFont(font)
-
     logger.info("Ghost Downloader v{} launched", VERSION)
+
+
+def applyFont() -> None:
+    """按屏幕缩放决定字形 hinting：高分屏关闭更锐利，1080p 关闭会发灰粘连 #1012。"""
+    if sys.platform != "win32":
+        return
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QApplication
+    screen = QApplication.primaryScreen()
+    ratio = screen.devicePixelRatio() if screen is not None else 1.0
+    font = QFont()
+    font.setHintingPreference(
+        QFont.HintingPreference.PreferNoHinting
+        if ratio >= 1.5
+        else QFont.HintingPreference.PreferDefaultHinting
+    )
+    QApplication.setFont(font)
 
 
 def startApp(application: Application, primaryInstance: PrimaryInstance, isSilent: bool = False) -> None:
@@ -324,6 +334,7 @@ if __name__ == "__main__":
 
     setupEnvironment()
     app = Application(sys.argv)
+    applyFont()
     primaryInstance = instance.open(app, argv, os.getcwd())
     if primaryInstance is None:
         sys.exit(0)
