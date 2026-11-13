@@ -66,3 +66,16 @@ async def test_parse_resource_with_size_sends_no_request(http, startServer):
 
     assert task.name == "a.zip"
     assert requests == []
+
+
+async def test_parse_resource_with_false_range_is_probed(http, startServer):
+    """调用方说“不支持 Range”只是猜测，必须探测核实 #867。"""
+    requests = []
+    url = await startServer(buildNamedHandler("a.zip", requests))
+
+    task = await http.parse(ResourceTaskOptions(url=url, name="a.zip", size=len(CONTENT), canUseRangeRequests=False))
+
+    assert task.name == "a.zip"
+    assert task.fileSize == len(CONTENT)
+    assert task.steps[0].canUseRangeRequests is True
+    assert any(request.headers.get("Range") for request in requests)

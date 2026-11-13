@@ -229,7 +229,21 @@ class HttpParser(TaskParser):
         if options.isProbed:
             return buildTask(options)
         if isinstance(options, ResourceTaskOptions) and options.name and options.size > 0:
-            file = RemoteFile(name=options.name, fileSize=options.size, canUseRangeRequests=options.canUseRangeRequests)
+            if options.canUseRangeRequests:
+                file = RemoteFile(name=options.name, fileSize=options.size, canUseRangeRequests=True)
+                return await self.pack.parse(replace(options, file=file))
+            # 调用方的否定答复只是猜测：浏览器扩展隔着重定向看不到最终主机能否 Range。
+            # 照单全收会让任务永久单线程且不可暂停 #867，所以用一次探测核实。
+            try:
+                probed = await probe(options)
+            except Exception as e:
+                logger.debug("Range 探测失败，沿用调用方参数: {}", e)
+                probed = RemoteFile(name=options.name, fileSize=options.size, canUseRangeRequests=False)
+            file = replace(
+                probed,
+                name=options.name,
+                fileSize=probed.fileSize if probed.fileSize > 0 else options.size,
+            )
             return await self.pack.parse(replace(options, file=file))
         return await self.pack.parse(replace(options, file=await probe(options)))
 
