@@ -1,0 +1,77 @@
+name: Build Windows (test build)
+
+on:
+  push:
+    branches:
+      - fix/issues-867-1012-1031
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.13
+          uv sync
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = uv run --no-sync python -c "exec(open('app/config/constants.py', encoding='utf-8').read()); print(VERSION)"
+          "VERSION=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "version=$v"
+
+      - name: Build with Nuitka
+        shell: pwsh
+        run: |
+          (Get-Content scripts/Ghost-Downloader-3.iss) `
+            -replace 'APPLICATION_VERSION', '${{ steps.version.outputs.VERSION }}' `
+            -replace 'APPLICATION_ARCHITECTURES', 'x64compatible' |
+            Set-Content scripts/Ghost-Downloader-3.iss
+          uv run --no-sync scripts/deploy.py
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $name = "Ghost-Downloader-${{ steps.version.outputs.VERSION }}-Windows-x86_64"
+          Compress-Archive -Path "dist/Ghost-Downloader-3.dist/*" -DestinationPath "$name.zip" -CompressionLevel Optimal -Force
+          Get-FileHash "$name.zip" -Algorithm SHA256 | Format-List | Out-String
+
+      - name: Install Inno Setup and language files
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $langs = @("ChineseSimplified", "ChineseTraditional", "Japanese", "Russian", "Spanish", "BrazilianPortuguese")
+          $target = "C:\Program Files (x86)\Inno Setup 6\Languages"
+          foreach ($lang in $langs) {
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/$lang.isl" -OutFile "$target\$lang.isl"
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/Ghost-Downloader-3.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          Get-ChildItem dist -Filter "*Setup.exe" | Format-Table Name,Length | Out-String
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghost-Downloader-Windows-x86_64
+          path: |
+            Ghost-Downloader-*-Windows-x86_64.zip
+            dist/Ghost-Downloader-*-Windows-Setup.exe
+          retention-days: 30
