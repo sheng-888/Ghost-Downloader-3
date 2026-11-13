@@ -62,13 +62,30 @@ def buildProfileMenu(parent: QWidget, onPick: Callable[[str], None], *, includeA
         latest.triggered.connect(lambda checked=False, v=family: onPick(v))
         submenu.addAction(latest)
         submenu.addSeparator()
+        populateProfileSubmenu(submenu, family, parent, onPick)
+        menu.addMenu(submenu)
+
+    return menu
+
+
+def populateProfileSubmenu(submenu: RoundMenu, family: str, parent: QWidget,
+                           onPick: Callable[[str], None]) -> None:
+    """137 个版本一次性建完会拖慢设置页和任务草稿，展开子菜单时再补。"""
+    from app.client import profileVersions
+
+    isBuilt = False
+
+    def populate() -> None:
+        nonlocal isBuilt
+        if isBuilt:
+            return
+        isBuilt = True
         for name in profileVersions(family):
             action = Action(toProfileLabel(name), parent)
             action.triggered.connect(lambda checked=False, v=name: onPick(v))
             submenu.addAction(action)
-        menu.addMenu(submenu)
 
-    return menu
+    submenu.aboutToShow.connect(populate)
 
 
 class OptionCard(QWidget):
